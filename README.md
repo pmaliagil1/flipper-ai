@@ -2,6 +2,8 @@
 
 Chat with an AI (Claude, GPT-OSS via Groq, or any OpenAI-compatible API) **directly from your Flipper Zero**, using the official WiFi Dev Board (ESP32-S2) running [FlipperHTTP](https://github.com/jblanked/FlipperHTTP).
 
+![Flipper AI demo](screenshots/demo.png)
+
 *Versión en español más abajo.*
 
 ```
