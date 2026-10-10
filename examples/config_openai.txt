@@ -1,0 +1,8 @@
+# Flipper AI - config para OpenAI (o cualquier API compatible: OpenRouter, etc.)
+# Guarda este archivo en la SD del Flipper como:
+#    apps_data/flipper_ai/config.txt
+provider=openai
+api_key=sk-PEGA_AQUI_TU_KEY
+model=gpt-4o-mini
+max_tokens=300
+url=https://api.openai.com/v1/chat/completions

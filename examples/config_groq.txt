@@ -1,0 +1,14 @@
+# Flipper AI - config para Groq (GRATIS)
+# 1. Crea una API key en https://console.groq.com (API Keys > Create API Key)
+# 2. Pegala abajo en lugar de gsk_PEGA_AQUI_TU_KEY
+# 3. Guarda este archivo en la SD del Flipper como:
+#    apps_data/flipper_ai/config.txt
+#
+# Si sale "model does not exist", Groq ha retirado el modelo: mira los
+# modelos actuales en https://console.groq.com/docs/models y cambia model=
+provider=openai
+api_key=gsk_PEGA_AQUI_TU_KEY
+model=openai/gpt-oss-120b
+reasoning_effort=low
+max_tokens=1200
+url=https://api.groq.com/openai/v1/chat/completions

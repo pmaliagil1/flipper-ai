@@ -22,7 +22,7 @@ Tested on **Momentum MNTM-012** with the official WiFi Dev Board.
 1. Flash **FlipperHTTP** on your WiFi Dev Board (see the FlipperHTTP repo) if you haven't already.
 2. Copy `flipper_app/dist/flipper_ai.fap` to your SD card at `apps/GPIO/` (e.g. with qFlipper).
    The prebuilt `.fap` was compiled against the Momentum MNTM-012 SDK; for other firmwares, build it yourself (see below).
-3. Open the app once. It creates `apps_data/flipper_ai/config.txt` on the SD card. Edit it with your API key:
+3. Open the app once. It creates `apps_data/flipper_ai/config.txt` on the SD card. Replace it with one of the ready-made files in [`examples/`](examples/) with your API key:
 
 **Groq (free, get a key at console.groq.com):**
 ```
@@ -63,6 +63,8 @@ cd flipper_app && ufbt
 ## Español
 
 App para **Flipper Zero** que te deja chatear con una IA (Claude, GPT-OSS gratis con Groq, o cualquier API compatible con OpenAI) usando la placa WiFi oficial (ESP32-S2) con el firmware [FlipperHTTP](https://github.com/jblanked/FlipperHTTP).
+
+📖 **Guía paso a paso: [docs/GUIA_INSTALACION.md](docs/GUIA_INSTALACION.md)** · Configs de ejemplo en [`examples/`](examples/).
 
 **Instalación:** copia `flipper_ai.fap` a `apps/GPIO/` de la SD, abre la app una vez y edita `apps_data/flipper_ai/config.txt` con tu API key (ejemplos arriba). Después: *Configurar WiFi* (red de 2,4 GHz) → *Preguntar*. La tecla `_` sirve de espacio.
 
