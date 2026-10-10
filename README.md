@@ -72,6 +72,13 @@ App para **Flipper Zero** que te deja chatear con una IA (Claude, GPT-OSS gratis
 
 Recuerda las 3 últimas preguntas hasta que elijas *Nueva conversación*.
 
+## Similar projects / Proyectos similares
+- [FlipGemini](https://github.com/jblanked/FlipGemini) by jblanked: chat with Google Gemini using FlipperHTTP (the closest one, and a great app).
+- [Gemini-Flipper](https://github.com/d4rks1d33/Gemini-Flipper) by d4rks1d33: the original Gemini idea.
+- [Flipper-Fake-Calc](https://github.com/iwashiiro/Flipper-Fake-Calc): a fake calculator with a hidden AI chat (custom ESP32 firmware).
+
+What Flipper AI adds: multiple providers (Claude, Groq for free, OpenAI or any OpenAI-compatible API), conversation memory, and it works with the stock FlipperHTTP firmware.
+
 ## Credits
 - Made by Pablo Malia Gil, built with the help of Claude.
 - Uses the [FlipperHTTP](https://github.com/jblanked/FlipperHTTP) firmware by JBlanked.
