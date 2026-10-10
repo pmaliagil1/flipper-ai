@@ -1,0 +1,13 @@
+App(
+    appid="flipper_ai",
+    name="Flipper AI",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="flipper_ai_app",
+    requires=["gui"],
+    stack_size=4 * 1024,
+    fap_category="GPIO",
+    fap_icon="flipper_ai.png",
+    fap_version="1.0",
+    fap_description="Chatea con Claude (u otra IA) a traves de la placa WiFi ESP32",
+    fap_author="Pablo Malia Gil",
+)

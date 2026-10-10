@@ -1,0 +1,5 @@
+build/
+dist/debug/
+.vscode/
+.ufbt/
+config.txt
