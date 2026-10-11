@@ -1,6 +1,8 @@
 # Flipper AI - config para Claude (API de Anthropic, DE PAGO por uso)
 # OJO: la suscripcion Claude Pro/Max NO incluye la API. Necesitas saldo en
 # https://console.anthropic.com (Billing) y una API key (API Keys > Create Key).
+# MUY RECOMENDADO: pon un limite de gasto en console.anthropic.com (Limits),
+# porque la clave queda en texto plano en la SD y quien tenga tu Flipper puede leerla.
 # Guarda este archivo en la SD del Flipper como:
 #    apps_data/flipper_ai/config.txt
 provider=claude

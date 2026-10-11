@@ -1,6 +1,8 @@
 # Flipper AI - config para Groq (GRATIS)
 # 1. Crea una API key en https://console.groq.com (API Keys > Create API Key)
 # 2. Pegala abajo en lugar de gsk_PEGA_AQUI_TU_KEY
+# CONSEJO: la clave queda en texto plano en la SD. Groq es gratis, pero si usas
+# una de pago, ponle limite de gasto en la consola del proveedor.
 # 3. Guarda este archivo en la SD del Flipper como:
 #    apps_data/flipper_ai/config.txt
 #
@@ -12,3 +14,5 @@ model=openai/gpt-oss-120b
 reasoning_effort=low
 max_tokens=1200
 url=https://api.groq.com/openai/v1/chat/completions
+# Opcional: cambia como responde la IA (respuestas cortas = menos scroll)
+# system_prompt=Responde en espanol en menos de 40 palabras, texto plano.

@@ -1,0 +1,19 @@
+# Flipper AI - config para Ollama en tu propia red (EXPERIMENTAL, sin probar)
+#
+# 1. En el PC con Ollama, haz que escuche en todas las interfaces
+#    (por defecto solo escucha en el propio PC y la placa no llega):
+#      Windows:  setx OLLAMA_HOST 0.0.0.0   (y reinicia Ollama)
+#      Linux/Mac: OLLAMA_HOST=0.0.0.0 ollama serve
+# 2. FlipperHTTP solo hace HTTPS, asi que hace falta un proxy HTTPS delante
+#    de Ollama (p. ej. Caddy):
+#      caddy reverse-proxy --from https://IP_DEL_PC:8443 --to localhost:11434 --internal-certs
+# 3. Usa un modelo pequeno/rapido: la placa espera unos pocos segundos a que
+#    el servidor empiece a responder.
+#
+# Ollama no necesita clave: deja api_key en blanco (no se envia Authorization).
+provider=openai
+api_key=
+model=llama3.2:1b
+max_tokens=300
+timeout=180
+url=https://IP_DEL_PC:8443/v1/chat/completions

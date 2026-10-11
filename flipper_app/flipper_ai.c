@@ -21,7 +21,8 @@
 #include <gui/view_dispatcher.h>
 #include <gui/modules/submenu.h>
 #include <gui/modules/text_input.h>
-#include <gui/modules/text_box.h>
+#include <gui/view.h>
+#include <gui/elements.h>
 #include <expansion/expansion.h>
 #include <storage/storage.h>
 #include <toolbox/stream/file_stream.h>
@@ -33,7 +34,7 @@
 #define RX_LINE_MAX 12000
 #define HISTORY_MAX 6 // mensajes recordados (3 preguntas + 3 respuestas)
 #define HISTORY_MSG_MAX 600 // caracteres maximos por mensaje guardado
-#define TIMEOUT_MS 60000
+#define DEFAULT_TIMEOUT_S 60
 #define TX_CHUNK 16
 #define TX_CHUNK_DELAY_MS 8
 #define MAX_RETRIES 2
@@ -41,7 +42,7 @@
 #define CONFIG_DIR EXT_PATH("apps_data/flipper_ai")
 #define CONFIG_PATH CONFIG_DIR "/config.txt"
 
-#define SYSTEM_PROMPT                                                                       \
+#define DEFAULT_SYSTEM_PROMPT                                                               \
     "Eres un asistente de IA. El usuario te escribe desde su Flipper Zero y " \
     "lees en su pantalla pequena. Responde en espanol, breve (max. 80 palabras), " \
     "texto plano, sin markdown, emojis ni tablas."
@@ -95,7 +96,7 @@ typedef struct {
     ViewDispatcher* view_dispatcher;
     Submenu* submenu;
     TextInput* text_input;
-    TextBox* text_box;
+    View* text_view;
     NotificationApp* notifications;
 
     char input[INPUT_SIZE];
@@ -111,7 +112,9 @@ typedef struct {
     FuriString* model;
     FuriString* url;
     FuriString* reasoning;
+    FuriString* system_prompt;
     int max_tokens;
+    int timeout_s;
 
     // Historial de conversacion
     HistMsg history[HISTORY_MAX];
@@ -282,7 +285,10 @@ static void config_write_template(Storage* storage) {
             "api_key=PEGA_AQUI_TU_API_KEY\n"
             "model=claude-haiku-5-5\n"
             "# url opcional (por defecto la de cada proveedor), p. ej. Groq:\n"
-            "# url=https://api.groq.com/openai/v1/chat/completions\n");
+            "# url=https://api.groq.com/openai/v1/chat/completions\n"
+            "# Opcionales: system_prompt=..., timeout=60 (segundos), max_tokens=300\n"
+            "# CONSEJO: usa una clave con limite de gasto o la gratuita de Groq:\n"
+            "# cualquiera con acceso a esta SD puede leerla.\n");
     }
     file_stream_close(s);
     stream_free(s);
@@ -294,7 +300,9 @@ static void config_load(App* app) {
     furi_string_set(app->model, "claude-haiku-5-5");
     furi_string_reset(app->url);
     furi_string_reset(app->reasoning);
+    furi_string_set(app->system_prompt, DEFAULT_SYSTEM_PROMPT);
     app->max_tokens = 300;
+    app->timeout_s = DEFAULT_TIMEOUT_S;
 
     Storage* storage = furi_record_open(RECORD_STORAGE);
     if(!storage_file_exists(storage, CONFIG_PATH)) config_write_template(storage);
@@ -325,6 +333,11 @@ static void config_load(App* app) {
                 furi_string_set(app->url, v);
             } else if(furi_string_cmp_str(k, "reasoning_effort") == 0) {
                 furi_string_set(app->reasoning, v);
+            } else if(furi_string_cmp_str(k, "system_prompt") == 0 && !furi_string_empty(v)) {
+                furi_string_set(app->system_prompt, v);
+            } else if(furi_string_cmp_str(k, "timeout") == 0) {
+                int t = atoi(furi_string_get_cstr(v));
+                if(t >= 10 && t <= 600) app->timeout_s = t;
             } else if(furi_string_cmp_str(k, "max_tokens") == 0) {
                 int mt = atoi(furi_string_get_cstr(v));
                 if(mt >= 50 && mt <= 8000) app->max_tokens = mt;
@@ -347,9 +360,19 @@ static void config_load(App* app) {
     }
 }
 
+static bool config_key_is_placeholder(App* app) {
+    return furi_string_search_str(app->api_key, "PEGA_AQUI") != FURI_STRING_FAILURE;
+}
+
 static bool config_has_key(App* app) {
-    return furi_string_size(app->api_key) > 10 &&
-           !furi_string_start_with_str(app->api_key, "PEGA_AQUI");
+    return !furi_string_empty(app->api_key) && !config_key_is_placeholder(app);
+}
+
+// Claude necesita clave. Las APIs compatibles con OpenAI pueden ir sin clave
+// (p. ej. un servidor local): clave en blanco = sin cabecera Authorization.
+static bool config_ready(App* app) {
+    if(config_key_is_placeholder(app)) return false;
+    return app->is_claude ? config_has_key(app) : true;
 }
 
 /* ================= Historial ================= */
@@ -510,7 +533,8 @@ static void uart_start_request(App* app, ReqType type, const char* cmd) {
     furi_hal_serial_tx(app->serial, (const uint8_t*)"\n", 1);
     furi_hal_serial_tx_wait_complete(app->serial);
 
-    furi_timer_start(app->timer, furi_ms_to_ticks(type == ReqPing ? 5000 : TIMEOUT_MS));
+    furi_timer_start(
+        app->timer, furi_ms_to_ticks(type == ReqPing ? 5000 : (uint32_t)app->timeout_s * 1000));
 }
 
 static void timer_cb(void* context) {
@@ -520,12 +544,122 @@ static void timer_cb(void* context) {
 
 /* ================= UI ================= */
 
+/* Visor de texto propio: parte las lineas por palabras midiendo el ancho
+ * real del texto y se desplaza con arriba/abajo (izq/der = pagina). */
+
+#define TV_LINE_H 10
+#define TV_LINES 6
+#define TV_WIDTH 122
+
+typedef struct {
+    FuriString* text;
+    int32_t scroll;
+    int32_t total_lines;
+} TextViewModel;
+
+// Recorre el texto partiendo en lineas; si draw, pinta las visibles.
+static int32_t tv_layout(Canvas* canvas, const char* t, int32_t scroll, bool draw) {
+    char line[96];
+    size_t len = 0;
+    int32_t n = 0;
+    const char* p = t;
+
+#define TV_EMIT()                                                                \
+    do {                                                                         \
+        line[len] = '\0';                                                        \
+        if(draw && n >= scroll && n < scroll + TV_LINES)                         \
+            canvas_draw_str(canvas, 0, (n - scroll) * TV_LINE_H + 8, line);      \
+        n++;                                                                     \
+        len = 0;                                                                 \
+    } while(0)
+
+    while(*p) {
+        if(*p == '\n') {
+            TV_EMIT();
+            p++;
+            continue;
+        }
+        // siguiente palabra (con el espacio que la sigue)
+        const char* w = p;
+        size_t wl = 0;
+        while(w[wl] && w[wl] != ' ' && w[wl] != '\n') wl++;
+        size_t take = wl + (w[wl] == ' ' ? 1 : 0);
+
+        char cand[96];
+        if(len + wl < sizeof(cand) - 1) {
+            memcpy(cand, line, len);
+            memcpy(cand + len, w, wl);
+            cand[len + wl] = '\0';
+            if(canvas_string_width(canvas, cand) <= TV_WIDTH) {
+                memcpy(line + len, w, take);
+                len += take;
+                p += take;
+                continue;
+            }
+        }
+        if(len > 0) {
+            // no cabe: salto de linea y probamos la palabra en la siguiente
+            while(len > 0 && line[len - 1] == ' ') len--;
+            TV_EMIT();
+            continue;
+        }
+        // palabra mas larga que la pantalla: partir por letras
+        while(*p && *p != ' ' && *p != '\n' && len < sizeof(line) - 2) {
+            line[len] = *p;
+            line[len + 1] = '\0';
+            if(canvas_string_width(canvas, line) > TV_WIDTH) break;
+            len++;
+            p++;
+        }
+        TV_EMIT();
+    }
+    if(len > 0) TV_EMIT();
+#undef TV_EMIT
+    return n;
+}
+
+static void tv_draw(Canvas* canvas, void* model) {
+    TextViewModel* m = model;
+    canvas_clear(canvas);
+    canvas_set_color(canvas, ColorBlack);
+    canvas_set_font(canvas, FontSecondary);
+    m->total_lines = tv_layout(canvas, furi_string_get_cstr(m->text), m->scroll, true);
+    if(m->total_lines > TV_LINES) {
+        elements_scrollbar(canvas, m->scroll, m->total_lines - TV_LINES + 1);
+    }
+}
+
+static bool tv_input(InputEvent* event, void* context) {
+    View* view = context;
+    if(event->type != InputTypeShort && event->type != InputTypeRepeat) return false;
+    bool consumed = true;
+    with_view_model(
+        view,
+        TextViewModel * m,
+        {
+            int32_t max = m->total_lines > TV_LINES ? m->total_lines - TV_LINES : 0;
+            if(event->key == InputKeyUp) m->scroll--;
+            else if(event->key == InputKeyDown) m->scroll++;
+            else if(event->key == InputKeyLeft) m->scroll -= TV_LINES - 1;
+            else if(event->key == InputKeyRight) m->scroll += TV_LINES - 1;
+            else consumed = false;
+            if(m->scroll > max) m->scroll = max;
+            if(m->scroll < 0) m->scroll = 0;
+        },
+        consumed);
+    return consumed;
+}
+
 static void show_text(App* app, const char* text) {
     furi_string_set(app->display, text);
-    text_box_reset(app->text_box);
-    text_box_set_font(app->text_box, TextBoxFontText);
-    text_box_set_text(app->text_box, furi_string_get_cstr(app->display));
-    text_box_set_focus(app->text_box, TextBoxFocusStart);
+    with_view_model(
+        app->text_view,
+        TextViewModel * m,
+        {
+            furi_string_set(m->text, app->display);
+            m->scroll = 0;
+        },
+        true);
     view_dispatcher_switch_to_view(app->view_dispatcher, ViewText);
 }
 
@@ -539,9 +673,15 @@ static void send_question(App* app, const char* question) {
         json_escape_append(cmd, furi_string_get_cstr(app->api_key));
         furi_string_cat(cmd, "\",\"anthropic-version\":\"2023-06-01\"}");
     } else {
-        furi_string_cat(cmd, "\"Authorization\":\"Bearer ");
-        json_escape_append(cmd, furi_string_get_cstr(app->api_key));
-        furi_string_cat(cmd, "\"}");
+        if(config_has_key(app)) {
+            furi_string_cat(cmd, "\"Authorization\":\"Bearer ");
+            json_escape_append(cmd, furi_string_get_cstr(app->api_key));
+            furi_string_cat(cmd, "\"}");
+        } else {
+            // quitar la coma final y cerrar
+            furi_string_left(cmd, furi_string_size(cmd) - 1);
+            furi_string_cat(cmd, "}");
+        }
     }
     furi_string_cat(cmd, ",\"payload\":{\"model\":\"");
     json_escape_append(cmd, furi_string_get_cstr(app->model));
@@ -552,9 +692,13 @@ static void send_question(App* app, const char* question) {
         furi_string_cat(cmd, "\",");
     }
     if(app->is_claude) {
-        furi_string_cat(cmd, "\"system\":\"" SYSTEM_PROMPT "\",\"messages\":[");
+        furi_string_cat(cmd, "\"system\":\"");
+        json_escape_append(cmd, furi_string_get_cstr(app->system_prompt));
+        furi_string_cat(cmd, "\",\"messages\":[");
     } else {
-        furi_string_cat(cmd, "\"messages\":[{\"role\":\"system\",\"content\":\"" SYSTEM_PROMPT "\"},");
+        furi_string_cat(cmd, "\"messages\":[{\"role\":\"system\",\"content\":\"");
+        json_escape_append(cmd, furi_string_get_cstr(app->system_prompt));
+        furi_string_cat(cmd, "\"},");
     }
     for(size_t i = 0; i < app->history_len; i++) {
         furi_string_cat_printf(
@@ -632,7 +776,9 @@ static void show_config(App* app) {
         "Editalo con qFlipper\n(Archivos) y vuelve\na abrir este menu.",
         app->is_claude ? "Claude" : "OpenAI/compat.",
         furi_string_get_cstr(app->model),
-        config_has_key(app) ? "OK" : "FALTA");
+        config_has_key(app)    ? "OK" :
+        config_ready(app)      ? "sin clave" :
+                                 "FALTA");
     show_text(app, furi_string_get_cstr(t));
     furi_string_free(t);
 }
@@ -642,7 +788,7 @@ static void submenu_cb(void* context, uint32_t index) {
     switch(index) {
     case MenuAsk:
         config_load(app);
-        if(!config_has_key(app)) {
+        if(!config_ready(app)) {
             show_text(
                 app,
                 "Falta la API key.\n\nPonla en la SD, en\napps_data/flipper_ai/\nconfig.txt\n(linea api_key=...)");
@@ -727,6 +873,32 @@ static void finish_ask(App* app) {
         if(!json_get_string(body, "message", msg)) furi_string_set(msg, body);
         furi_string_printf(text, "Error HTTP %d:\n%s", app->status_code, furi_string_get_cstr(msg));
         if(app->status_code == 401) furi_string_cat(text, "\n\nRevisa la API key.");
+        if(app->status_code == 429) {
+            // FlipperHTTP no pasa la cabecera Retry-After, pero Groq/OpenAI
+            // ponen el tiempo en el mensaje: "... try again in 7.66s ..."
+            const char* m = furi_string_get_cstr(msg);
+            const char* p = strstr(m, "try again in ");
+            if(p) {
+                p += strlen("try again in ");
+                char wait[24];
+                size_t i = 0;
+                while(p[i] && p[i] != '.' && p[i] != ' ' && i < sizeof(wait) - 1) {
+                    wait[i] = p[i];
+                    i++;
+                }
+                wait[i] = '\0';
+                // "7.66s" -> "7 s", "1m30" -> "1m30"
+                furi_string_printf(
+                    text,
+                    "Limite de peticiones\nalcanzado (es temporal,\nno es la WiFi).\n\nEspera %s%s y vuelve\na preguntar.",
+                    wait,
+                    strchr(wait, 'm') ? "" : " s");
+            } else {
+                furi_string_set(
+                    text,
+                    "Limite de peticiones\nalcanzado (es temporal,\nno es la WiFi).\n\nEspera un minuto y\nvuelve a preguntar.");
+            }
+        }
         furi_string_free(msg);
     }
 
@@ -826,6 +998,7 @@ int32_t flipper_ai_app(void* p) {
     app->model = furi_string_alloc();
     app->url = furi_string_alloc();
     app->reasoning = furi_string_alloc();
+    app->system_prompt = furi_string_alloc();
     app->pending_question = furi_string_alloc();
     app->last_cmd = furi_string_alloc();
     app->line = furi_string_alloc();
@@ -858,9 +1031,22 @@ int32_t flipper_ai_app(void* p) {
     view_set_previous_callback(text_input_get_view(app->text_input), back_to_menu_cb);
     view_dispatcher_add_view(app->view_dispatcher, ViewInput, text_input_get_view(app->text_input));
 
-    app->text_box = text_box_alloc();
-    view_set_previous_callback(text_box_get_view(app->text_box), back_to_menu_cb);
-    view_dispatcher_add_view(app->view_dispatcher, ViewText, text_box_get_view(app->text_box));
+    app->text_view = view_alloc();
+    view_allocate_model(app->text_view, ViewModelTypeLocking, sizeof(TextViewModel));
+    with_view_model(
+        app->text_view,
+        TextViewModel * m,
+        {
+            m->text = furi_string_alloc();
+            m->scroll = 0;
+            m->total_lines = 0;
+        },
+        false);
+    view_set_context(app->text_view, app->text_view);
+    view_set_draw_callback(app->text_view, tv_draw);
+    view_set_input_callback(app->text_view, tv_input);
+    view_set_previous_callback(app->text_view, back_to_menu_cb);
+    view_dispatcher_add_view(app->view_dispatcher, ViewText, app->text_view);
 
     app->timer = furi_timer_alloc(timer_cb, FuriTimerTypeOnce, app);
 
@@ -897,7 +1083,8 @@ int32_t flipper_ai_app(void* p) {
     view_dispatcher_remove_view(app->view_dispatcher, ViewText);
     submenu_free(app->submenu);
     text_input_free(app->text_input);
-    text_box_free(app->text_box);
+    with_view_model(app->text_view, TextViewModel * m, { furi_string_free(m->text); }, false);
+    view_free(app->text_view);
     view_dispatcher_free(app->view_dispatcher);
     furi_record_close(RECORD_GUI);
     furi_record_close(RECORD_NOTIFICATION);
@@ -911,6 +1098,7 @@ int32_t flipper_ai_app(void* p) {
     furi_string_free(app->model);
     furi_string_free(app->url);
     furi_string_free(app->reasoning);
+    furi_string_free(app->system_prompt);
     furi_string_free(app->pending_question);
     furi_string_free(app->last_cmd);
     furi_string_free(app->line);

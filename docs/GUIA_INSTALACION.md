@@ -25,6 +25,17 @@
 3. Súbelo con qFlipper a `SD Card/apps_data/flipper_ai/` sustituyendo el que hay.
 4. En la app, **Ver configuración** debe decir `API key: OK`.
 
+### Opciones extra de `config.txt`
+| Opción | Para qué sirve |
+|---|---|
+| `system_prompt=` | Cómo debe responder la IA. Por defecto pide respuestas cortas (máx. 80 palabras) en texto plano, para no tener que hacer mucho scroll. |
+| `timeout=` | Segundos que la app espera la respuesta (por defecto 60). |
+| `max_tokens=` | Longitud máxima de la respuesta. |
+
+> 🔐 **Seguridad de la clave:** `config.txt` está en texto plano. Cualquiera a quien
+> le prestes el Flipper (o la SD) puede leer tu clave. Usa la **gratuita de Groq** o
+> una clave con **límite de gasto** configurado en la consola del proveedor.
+
 ## 3. Conectar la placa a tu WiFi
 1. Conecta la placa WiFi al Flipper.
 2. En la app: **Probar placa WiFi** → debe decir *Placa WiFi OK (FlipperHTTP)*.
@@ -48,8 +59,23 @@ Trucos del teclado del Flipper:
 | Not connected to WiFi | Usa *Configurar WiFi*. Red de 2,4 GHz. |
 | Error HTTP 401 | API key incorrecta. Revisa `config.txt`. |
 | Error HTTP 404 model does not exist | El proveedor retiró el modelo: cambia la línea `model=`. |
-| Error HTTP 429 | Has superado el límite gratis de Groq. Espera un poco. |
+| Límite de peticiones alcanzado | Has superado el límite gratis de Groq. Es temporal: la app te dice cuántos segundos esperar. |
 | No se pudo abrir la UART | Cierra otras apps GPIO o desactiva el log por UART. |
+
+## Leer respuestas largas
+Las respuestas se parten por palabras. Usa **arriba/abajo** para moverte línea a línea
+y **izquierda/derecha** para pasar página. La barra de la derecha indica dónde estás.
+
+## Ollama en tu red (experimental, sin probar)
+La app funciona con cualquier API compatible con OpenAI, y si dejas `api_key=` en
+blanco no envía la cabecera `Authorization`, así que un servidor **Ollama** local
+podría servir. Ojo con tres cosas:
+1. Ollama por defecto solo escucha en el propio PC: configura `OLLAMA_HOST=0.0.0.0`
+   para que la placa WiFi pueda llegar (endpoint: puerto `11434`, ruta `/v1/chat/completions`).
+2. El firmware FlipperHTTP **solo hace HTTPS**, así que necesitas un proxy HTTPS
+   delante (por ejemplo Caddy). Mira `examples/config_ollama.txt`.
+3. Los modelos locales son más lentos: sube `timeout=` y usa un modelo pequeño,
+   porque la placa también tiene su propio límite de espera.
 
 ## Seguridad
 Tu API key se guarda en texto plano en la SD. No compartas el archivo

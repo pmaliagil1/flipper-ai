@@ -1,5 +1,5 @@
-build/
-dist/debug/
+**/build/
+**/dist/debug/
 .vscode/
 .ufbt/
 config.txt

@@ -17,6 +17,9 @@ Chat with an AI (Claude, GPT-OSS via Groq, or any OpenAI-compatible API) **direc
 - No custom ESP32 firmware needed: uses the standard FlipperHTTP firmware.
 - Built-in WiFi setup, board test and config viewer.
 - Accents and Unicode are converted to ASCII for the Flipper font.
+- Word-wrapped answer viewer (up/down = line, left/right = page).
+- Configurable `system_prompt=` (short answers by default), `timeout=` and `max_tokens=`.
+- Clear message when you hit a rate limit (HTTP 429), with the wait time.
 
 Tested on **Momentum MNTM-012** with the official WiFi Dev Board.
 
@@ -58,7 +61,9 @@ cd flipper_app && ufbt
 ## Technical notes
 - Long UART lines (> ~550 bytes) get corrupted on the ESP32 if sent at full speed, so the app sends requests in 16-byte chunks with short pauses, and automatically retries if the board or the API reports invalid JSON.
 - `esp32_firmware/` contains an optional standalone bridge firmware (Arduino) that doesn't need FlipperHTTP.
-- ⚠️ Your API key is stored in plain text on the SD card. Don't share your SD/config.
+- ⚠️ Your API key is stored in plain text on the SD card: anyone you lend your Flipper to can read it. Use Groq's free key or a key with a **spending limit**.
+- **Ollama (experimental, untested):** leave `api_key=` blank and no `Authorization` header is sent. Set `OLLAMA_HOST=0.0.0.0` so the board can reach it (port 11434, `/v1/chat/completions`). FlipperHTTP only speaks HTTPS, so you need an HTTPS reverse proxy (e.g. Caddy) in front, a small/fast model and a higher `timeout=`. See [`examples/config_ollama.txt`](examples/config_ollama.txt).
+- FlipperHTTP doesn't forward response headers, so the 429 wait time is read from the error message (Groq/OpenAI include "try again in Xs").
 
 ---
 
